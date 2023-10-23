@@ -72,7 +72,7 @@ class TransformerEncoder(nn.Module):
                     gru_rel_pos=args.gru_rel_pos,
                     encoder_layers=args.encoder_layers,
                 )
-                for i in range(args.encoder_layers)
+                for _ in range(args.encoder_layers)
             ]
         )
         if self.relative_position_embedding:
@@ -331,10 +331,7 @@ class MultiheadAttention(nn.Module):
             "Self-attention requires query, key and " "value to be of the same size"
         )
 
-        k_bias = True
-        if rescale_init:
-            k_bias = False
-
+        k_bias = not rescale_init
         k_embed_dim = embed_dim
         q_embed_dim = embed_dim
 
@@ -733,9 +730,8 @@ class MultiheadAttention(nn.Module):
         result = self.get_incremental_state(incremental_state, "attn_state")
         if result is not None:
             return result
-        else:
-            empty_result: Dict[str, Optional[Tensor]] = {}
-            return empty_result
+        empty_result: Dict[str, Optional[Tensor]] = {}
+        return empty_result
 
     def _set_input_buffer(
             self,

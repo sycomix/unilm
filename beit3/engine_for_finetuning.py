@@ -139,7 +139,7 @@ class RetrievalHandler(TaskHandler):
                 idx = _idx.item()
                 if idx not in image_feats:
                     image_feats[idx] = feats[i]
-        
+
         tiids = torch.cat(self.image_ids, dim=0)
         iids = []
         sorted_tensors = []
@@ -153,14 +153,14 @@ class RetrievalHandler(TaskHandler):
         scores = image_cls_feats @ text_cls_feats.t()
         iids = torch.LongTensor(iids).to(scores.device)
 
-        print("scores: {}".format(scores.size()))
-        print("iids: {}".format(iids.size()))
-        print("tiids: {}".format(tiids.size()))
+        print(f"scores: {scores.size()}")
+        print(f"iids: {iids.size()}")
+        print(f"tiids: {tiids.size()}")
 
         topk10 = scores.topk(10, dim=1)
         topk5 = scores.topk(5, dim=1)
         topk1 = scores.topk(1, dim=1)
-        
+
         topk10_iids = tiids[topk10.indices]
         topk5_iids = tiids[topk5.indices]
         topk1_iids = tiids[topk1.indices]
@@ -190,7 +190,7 @@ class RetrievalHandler(TaskHandler):
             "average_score": 100.0 * (tr_r1 + tr_r5 + tr_r10 + ir_r1 + ir_r5 + ir_r10).item() / 6.0, 
         }
 
-        print('* Eval result = %s' % json.dumps(eval_result))
+        print(f'* Eval result = {json.dumps(eval_result)}')
         return eval_result, "average_score"
 
 
@@ -231,11 +231,10 @@ class VQAHandler(TaskHandler):
                 })
 
     def after_eval(self, **kwargs):
-        if len(self.predictions) == 0:
-            print('* Score {score.global_avg:.3f}'.format(score=self.metric_logger.score))
-            return {k: meter.global_avg for k, meter in self.metric_logger.meters.items()}, "score"
-        else:
+        if len(self.predictions) != 0:
             return self.predictions, "prediction"
+        print('* Score {score.global_avg:.3f}'.format(score=self.metric_logger.score))
+        return {k: meter.global_avg for k, meter in self.metric_logger.meters.items()}, "score"
 
 
 class CaptioningHandler(TaskHandler):
@@ -287,7 +286,7 @@ class CaptioningHandler(TaskHandler):
             (batch_size, self.max_len-1), mask_id, dtype=torch.long, device=image.device
         )
         decoding_results = torch.cat([cls_ids, tmp_ids], dim=1)
-        
+
         # Expand input to num beams
         cur_input_ids = cur_input_ids.unsqueeze(1).expand(batch_size, self.num_beams, cur_len)
         cur_input_ids = cur_input_ids.contiguous().view(batch_size * self.num_beams, cur_len)  # (batch_size * num_beams, cur_len)
@@ -310,8 +309,8 @@ class CaptioningHandler(TaskHandler):
         done = [False for _ in range(batch_size)]
         incremental_state = {}
 
+        next_token_idx = 1
         while cur_len <= self.max_len:
-            next_token_idx = 1
             padding_masks = torch.full(
                 cur_input_ids.shape, 0, dtype=torch.long, device=image.device
             )
@@ -366,15 +365,15 @@ class CaptioningHandler(TaskHandler):
 
                 # update next beam content
                 if cur_len + 1 == self.max_len:
-                    assert len(next_sent_beam) == 0
+                    assert not next_sent_beam
                 else:
                     assert len(next_sent_beam) == self.num_beams
 
-                if len(next_sent_beam) == 0:
+                if not next_sent_beam:
                     next_sent_beam = [(0, pad_id, 0)] * self.num_beams  # pad the batch
                 next_batch_beam.extend(next_sent_beam)
                 assert len(next_batch_beam) == self.num_beams * (batch_ex + 1)
-            
+
             # sanity check / prepare next batch
             assert len(next_batch_beam) == batch_size * self.num_beams
             beam_scores = beam_scores.new([x[0] for x in next_batch_beam])
@@ -388,18 +387,18 @@ class CaptioningHandler(TaskHandler):
                 for key in incremental_state[module]:
                     result = incremental_state[module][key].index_select(0, beam_idx)
                     incremental_state[module][key] = result[:,:,:-1,:]
-            
+
             next_ids = torch.full(
                 (batch_size * self.num_beams, 1), mask_id, dtype=torch.long, device=image.device
             )
             cur_input_ids = torch.cat([beam_words.unsqueeze(1), next_ids], dim=1)
             decoding_results[:, cur_len-1] = beam_words
             # update current length
-            cur_len = cur_len + 1
+            cur_len += 1
             # stop when we are done with each sentence
             if all(done):
                 break
-        
+
         # select the best hypotheses
         tgt_len = torch.ones(batch_size, num_keep_best, dtype=torch.long)
         logprobs = torch.zeros(batch_size, num_keep_best,
@@ -417,14 +416,14 @@ class CaptioningHandler(TaskHandler):
                     logprobs[i, best_idx] = conf
                     tgt_len[i, best_idx] = len(best_hyp) + 1  # +1 for the <EOS> symbol
                 all_best.append(best)
-        
+
         # generate target batch, pad to the same length
         decoded = cur_input_ids.new(batch_size, num_keep_best, self.max_len).fill_(pad_id)
         for batch_idx, best in enumerate(all_best):
             for best_idx, hypo in enumerate(best):
                 decoded[batch_idx, best_idx, : tgt_len[batch_idx, best_idx] - 1] = hypo
                 decoded[batch_idx, best_idx, tgt_len[batch_idx, best_idx] - 1] = eos_token_ids[0]
-        
+
         captions = self.tokenizer.batch_decode(decoded.squeeze(1), skip_special_tokens=True)
         for qid, pred in zip(image_id, captions):
             self.predictions.append({
@@ -448,7 +447,7 @@ def get_handler(args):
     elif args.task in ("imagenet"):
         return ImageNetHandler(args)
     else:
-        raise NotImplementedError("Sorry, %s is not support." % args.task)
+        raise NotImplementedError(f"Sorry, {args.task} is not support.")
 
 
 def train_one_epoch(
@@ -464,7 +463,7 @@ def train_one_epoch(
     metric_logger = utils.MetricLogger(delimiter="  ")
     metric_logger.add_meter('lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
     metric_logger.add_meter('min_lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
-    header = 'Epoch: [{}]'.format(epoch)
+    header = f'Epoch: [{epoch}]'
     print_freq = 10
 
     if loss_scaler is None:
@@ -478,9 +477,8 @@ def train_one_epoch(
         global_step = start_steps + step  # global training iteration
         # Update LR & WD for the first acc
         if lr_schedule_values is not None and data_iter_step % update_freq == 0:
-            for i, param_group in enumerate(optimizer.param_groups):
-                if lr_schedule_values is not None:
-                    param_group["lr"] = lr_schedule_values[global_step] * param_group["lr_scale"]
+            for param_group in optimizer.param_groups:
+                param_group["lr"] = lr_schedule_values[global_step] * param_group["lr_scale"]
         # put input data into cuda
         for tensor_key in data.keys():
             data[tensor_key] = data[tensor_key].to(device, non_blocking=True)
@@ -491,7 +489,7 @@ def train_one_epoch(
         # mixup for imagenet finetuning
         if mixup_fn is not None:
             data["image"], data["label"] = mixup_fn(data["image"], data["label"])
-        
+
         if task in ["coco_captioning", "nocaps"]:
             data["global_step"] = global_step
 
@@ -505,7 +503,7 @@ def train_one_epoch(
         loss_value = loss.item()
 
         if not math.isfinite(loss_value):
-            print("Loss is {}, stopping training".format(loss_value))
+            print(f"Loss is {loss_value}, stopping training")
             sys.exit(1)
 
         if loss_scaler is None:

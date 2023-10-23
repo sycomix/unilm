@@ -86,7 +86,7 @@ class DataAugmentationForBEiT(object):
 
 def build_beit_pretraining_dataset(args):
     transform = DataAugmentationForBEiT(args)
-    print("Data Aug = %s" % str(transform))
+    print(f"Data Aug = {str(transform)}")
     return ImageFolder(args.data_path, transform=transform)
 
 
@@ -154,16 +154,13 @@ def build_transform(is_train, args):
     t = []
     if resize_im:
         if args.crop_pct is None:
-            if args.input_size < 384:
-                args.crop_pct = 224 / 256
-            else:
-                args.crop_pct = 1.0
+            args.crop_pct = 224 / 256 if args.input_size < 384 else 1.0
         size = int(args.input_size / args.crop_pct)
-        t.append(
-            transforms.Resize(size, interpolation=3),  # to maintain same ratio w.r.t. 224 images
+        t.extend(
+            (
+                transforms.Resize(size, interpolation=3),
+                transforms.CenterCrop(args.input_size),
+            )
         )
-        t.append(transforms.CenterCrop(args.input_size))
-
-    t.append(transforms.ToTensor())
-    t.append(transforms.Normalize(mean, std))
+    t.extend((transforms.ToTensor(), transforms.Normalize(mean, std)))
     return transforms.Compose(t)
